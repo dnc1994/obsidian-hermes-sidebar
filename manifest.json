@@ -1,7 +1,7 @@
 {
   "id": "hermes-sidebar",
   "name": "Hermes Sidebar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.5.0",
   "description": "Ask Hermes Agent questions about the active Obsidian note in a right sidebar.",
   "author": "Linghao + Hermes",

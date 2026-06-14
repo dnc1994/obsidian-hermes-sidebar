@@ -1,16 +1,28 @@
-const { Plugin, ItemView, Notice, MarkdownRenderer, ButtonComponent } = require("obsidian");
+const {
+  Plugin,
+  ItemView,
+  Notice,
+  MarkdownRenderer,
+  ButtonComponent,
+  PluginSettingTab,
+  Setting,
+} = require("obsidian");
 const { execFile } = require("child_process");
 
 const VIEW_TYPE_HERMES_SIDEBAR = "hermes-sidebar-view";
-const DEFAULT_HERMES_BIN = "/Users/linghao/.local/bin/hermes";
+const DEFAULT_SETTINGS = {
+  hermesCommand: "hermes",
+};
 
 class HermesSidebarPlugin extends Plugin {
   async onload() {
-    this.hermesBin = DEFAULT_HERMES_BIN;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.registerView(
       VIEW_TYPE_HERMES_SIDEBAR,
       (leaf) => new HermesSidebarView(leaf, this)
     );
+
+    this.addSettingTab(new HermesSidebarSettingTab(this.app, this));
 
     this.addRibbonIcon("message-square", "Open Hermes Sidebar", () => {
       this.activateView();
@@ -35,6 +47,10 @@ class HermesSidebarPlugin extends Plugin {
 
   onunload() {
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_HERMES_SIDEBAR);
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
 
   async activateView() {
@@ -68,6 +84,7 @@ class HermesSidebarPlugin extends Plugin {
       basename: file.basename,
       relativePath: file.path,
       absolutePath,
+      vaultBasePath,
     };
   }
 
@@ -92,13 +109,25 @@ class HermesSidebarPlugin extends Plugin {
   askHermes(noteInfo, question, onData) {
     return new Promise((resolve, reject) => {
       const prompt = this.buildPrompt(noteInfo, question);
+      const home = process.env.HOME || process.env.USERPROFILE || "";
+      const pathParts = [
+        process.env.PATH || "",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        home ? `${home}/.local/bin` : "",
+      ].filter(Boolean);
+
       const child = execFile(
-        this.hermesBin,
+        this.settings.hermesCommand || DEFAULT_SETTINGS.hermesCommand,
         ["chat", "--quiet", "-q", prompt],
         {
-          cwd: "/Users/linghao",
+          cwd: noteInfo.vaultBasePath || home || process.cwd(),
           maxBuffer: 1024 * 1024 * 10,
-          env: { ...process.env, HERMES_SOURCE: "obsidian-sidebar" },
+          env: {
+            ...process.env,
+            PATH: Array.from(new Set(pathParts)).join(":"),
+            HERMES_SOURCE: "obsidian-sidebar",
+          },
         },
         (error, stdout, stderr) => {
           if (error) {
@@ -117,6 +146,35 @@ class HermesSidebarPlugin extends Plugin {
       child.stdout?.on("data", (chunk) => onData?.(chunk.toString()));
       child.stderr?.on("data", (chunk) => onData?.(chunk.toString(), true));
     });
+  }
+}
+
+class HermesSidebarSettingTab extends PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    containerEl.createEl("h2", { text: "Hermes Sidebar" });
+
+    new Setting(containerEl)
+      .setName("Hermes command")
+      .setDesc(
+        "Command or absolute path used to run Hermes. Use 'hermes' if it is on PATH, or an absolute path such as /Users/you/.local/bin/hermes."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("hermes")
+          .setValue(this.plugin.settings.hermesCommand)
+          .onChange(async (value) => {
+            this.plugin.settings.hermesCommand = value.trim() || DEFAULT_SETTINGS.hermesCommand;
+            await this.plugin.saveSettings();
+          })
+      );
   }
 }
 
